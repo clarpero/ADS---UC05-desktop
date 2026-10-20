@@ -4,7 +4,7 @@ lista_de_visitantes = []
 lista_de_setores = ['Diretoria', 'Refeitório','Administração','Recepção','Júridico','Ensino']
 
 class JanelaPrincipal(QWidget):
-    def __init__(self):
+    def __init__(self, layout:QVBoxLayout, label:QLabel, campo_nome:QLineEdit, botao_cadastrar:QPushButton, botao_limpar:QPushButton, mensagem:QLabel):
         super().__init__()
         self.setWindowTitle("Cadastro de Visitantes")
         self.layout = QVBoxLayout()
