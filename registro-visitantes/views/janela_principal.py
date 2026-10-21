@@ -1,9 +1,10 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox, QFormLayout, QListWidget
+from PySide6.QtWidgets import(QWidget, QVBoxLayout, 
+                              QLabel, QLineEdit, QPushButton, 
+                              QComboBox, QFormLayout, QListWidget)
+
+
 class JanelaPrincipal(QWidget):
-    def __init__(self, layout:QVBoxLayout, label:QLabel, campo_nome:QLineEdit, 
-                botao_cadastrar:QPushButton, botao_limpar:QPushButton, mensagem:QLabel,
-                contador:QLabel, formulario:QFormLayout, campo_destino:QComboBox,
-                lista:QListWidget):
+    def __init__(self, layout, label, campo_nome, botao_cadastrar, botao_limpar, mensagem, contador, formulario, campo_destino, lista, limpar_campos):
         super().__init__()
         self.setWindowTitle("Cadastro de Visitantes")
         self.resize(520, 400)
@@ -20,7 +21,6 @@ class JanelaPrincipal(QWidget):
         self.botao_limpar = QPushButton("Limpar Campos")
         self.mensagem = QLabel("Preencha os campos")
         self.lista = QListWidget()
-        self.lista.addItem("Nenhum visitante registrado.")
         self.contador = QLabel("Visitantes nessa sessão: 0")
         formulario = QFormLayout()
         formulario.addRow("Nome:", self.campo_nome)
@@ -37,11 +37,37 @@ class JanelaPrincipal(QWidget):
         layout.addWidget(self.contador)
         self.setLayout(layout)
 
-    def limpar(self):
-        self.campo_nome.clear()
-        self.mensagem.setText("Campo limpo.")
+        #Os eventos de clique dos botões serão conectados aos métodos correspondentes
+        self.botao_cadastrar.clicked.connect(self.cadastrar_visita)
+        self.botao_limpar.clicked.connect(self.limpar_campos)
 
-    def cadastrar(self):
-        nome = self.campo_nome.text()
-        self.mensagem.setText(f"Cliente cadastrado: {nome}")
+        
+    def cadastrar_visita(self):
+        nome = self.campo_nome.text().strip()
+        destino = self.campo_destino.currentText()
 
+        if not nome:
+            self.mensagem.setText('Informe o nome do visitante.')
+            self.campo_nome.setFocus()
+            return
+
+        if self.campo_destino.currentIndex() == 0:
+            self.mensagem.setText('Selecione o setor de destino.')
+            self.campo_destino.setFocus()
+            return
+
+        registro = {"nome": nome, "destino": destino}
+        self.registros.append(registro)
+        self.lista.addItem(f"{nome} - {destino}")
+        self.contador.setText(f'Visitas nesta sessão: {len(self.registros)}')
+        self.mensagem.setText('Visita registrada com sucesso!')
+        self.limpar_campos()
+
+        
+    def limpar_campos(self):
+            self.campo_nome.clear()
+            self.campo_destino.setCurrentIndex(0)
+            self.mensagem.setText('Campos limpos. Preencha novamente.')
+            self.campo_nome.setFocus()
+
+        
