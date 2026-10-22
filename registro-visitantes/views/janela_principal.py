@@ -1,73 +1,74 @@
-from PySide6.QtWidgets import(QWidget, QVBoxLayout, 
+from PySide6.QtWidgets import(QHBoxLayout, QWidget, QVBoxLayout, 
                               QLabel, QLineEdit, QPushButton, 
                               QComboBox, QFormLayout, QListWidget)
 
+setores = ['Secretaria', 'Coordenação', 'Laboratório']
 
 class JanelaPrincipal(QWidget):
-    def __init__(self, layout, label, campo_nome, botao_cadastrar, botao_limpar, mensagem, contador, formulario, campo_destino, lista, limpar_campos):
+    def __init__(self):
         super().__init__()
-        self.setWindowTitle("Cadastro de Visitantes")
-        self.resize(520, 400)
-        self.registros = []
-
+        self.setWindowTitle("Portaria Digital")
+        self.resize(820, 520)
+        
+        # --- widgets ---
         self.titulo = QLabel('Recepção - Registro de Visitantes')
+        self.campo_cpf = QLineEdit()
+        self.campo_cpf.setPlaceholderText('Somente Números')
+        self.campo_cpf.setMaxLength(14)
         self.campo_nome = QLineEdit()
-        self.campo_nome.setPlaceholderText("Nome Completo")
+        self.campo_setor = QComboBox()
+        self.campo_setor.addItem('Selecione um setor')
+        self.campo_setor.addItems(setores)
+        self.botao_entrada = QPushButton('Registrar entrada')
+        self.botao_limpar = QPushButton('Limpar campos')
+        self.mensagem = QLabel('Informe o CPF do visitante')
 
-        self.campo_destino = QComboBox()
-        self.campo_destino.addItems(["Selecione um setor","Secretaria", "Cordenação", "Laboratório"])
-
-        self.botao_cadastrar = QPushButton("Registrar Visita")
-        self.botao_limpar = QPushButton("Limpar Campos")
-        self.mensagem = QLabel("Preencha os campos")
-        self.lista = QListWidget()
-        self.contador = QLabel("Visitantes nessa sessão: 0")
+        # ---- Layouts ----
         formulario = QFormLayout()
-        formulario.addRow("Nome:", self.campo_nome)
-        formulario.addRow("Destino:", self.campo_destino)
+        formulario.addRow('CPF:', self.campo_cpf)
+        formulario.addRow('Nome:', self.campo_nome)
+        formulario.addRow('Setor:', self.campo_setor)
+
+        botoes = QHBoxLayout()
+        botoes.addWidget(self.botao_entrada)
+        botoes.addWidget(self.botao_limpar)
 
         layout = QVBoxLayout()
-        layout.addWidget(self.titulo)
         layout.addLayout(formulario)
-        layout.addWidget(self.botao_cadastrar)
-        layout.addWidget(self.botao_limpar)
+        layout.addLayout(botoes)
         layout.addWidget(self.mensagem)
-        layout.addWidget(QLabel("Visitantes registrados:"))
-        layout.addWidget(self.lista)
-        layout.addWidget(self.contador)
+        layout.addStretch()
         self.setLayout(layout)
-
-        #Os eventos de clique dos botões serão conectados aos métodos correspondentes
-        self.botao_cadastrar.clicked.connect(self.cadastrar_visita)
+   
+        self.botao_entrada.setStyleSheet(
+             "background-color: #0b5ed7; color: white; border-radius: 8px; padding: 8x 16px;")
+        self.botao_limpar.setStyleSheet(
+                     "background-color: #0b5ed7; color: white; border-radius: 8px; padding: 8x 16px;")
+        self.botao_entrada.clicked.connect(self.registrar_entrada)        
         self.botao_limpar.clicked.connect(self.limpar_campos)
 
-        
-    def cadastrar_visita(self):
-        nome = self.campo_nome.text().strip()
-        destino = self.campo_destino.currentText()
 
+    def registrar_entrada(self):
+        cpf = " ".join(c for c in self.campo_cpf.text() if c.isdigit())
+        nome = " ".join(self.campo_nome.text().split())
+
+        if len(cpf) != 11:
+            self.mensagem.setText('O CPF precisa ter 11 digitos.')
+            self.campo_cpf.setFocus()
+            return
         if not nome:
             self.mensagem.setText('Informe o nome do visitante.')
             self.campo_nome.setFocus()
             return
+        if self.campo_setor.currentIndex() == 0: 
+            self.mensagem.setText('Selecone o setor de destino.')
+            return 
 
-        if self.campo_destino.currentIndex() == 0:
-            self.mensagem.setText('Selecione o setor de destino.')
-            self.campo_destino.setFocus()
-            return
+        setor = self.campo_setor.currentText()
+        self.mensagem.setText(f'Dados válidos: {nome} para {setor}. Ainda não gravamos nada')
 
-        registro = {"nome": nome, "destino": destino}
-        self.registros.append(registro)
-        self.lista.addItem(f"{nome} - {destino}")
-        self.contador.setText(f'Visitas nesta sessão: {len(self.registros)}')
-        self.mensagem.setText('Visita registrada com sucesso!')
-        self.limpar_campos()
-
-        
     def limpar_campos(self):
-            self.campo_nome.clear()
-            self.campo_destino.setCurrentIndex(0)
-            self.mensagem.setText('Campos limpos. Preencha novamente.')
-            self.campo_nome.setFocus()
-
-        
+        self.campo_cpf.clear()
+        self.campo_nome.clear()
+        self.setor.setCurrentIndex(0)
+        self.campo_cpf.setFocus()
