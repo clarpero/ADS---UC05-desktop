@@ -1,7 +1,7 @@
 import datetime
 
 from PySide6.QtWidgets import(QAbstractItemView, QHBoxLayout, QHeaderView, QTableWidget, QTableWidgetItem, QWidget, QVBoxLayout, 
-                              QLabel, QLineEdit, QPushButton, QComboBox, QFormLayout, QListWidget, QTableWidget)
+                              QLabel, QLineEdit, QPushButton, QComboBox, QFormLayout, QTableWidget)
 
 SETORES = ['Secretaria', 'Coordenação', 'Laboratório']
 CRACHAS = [f'V-{n:02d}' for n in range(1, 11)]
@@ -15,6 +15,11 @@ class JanelaPrincipal(QWidget):
         super().__init__()
         self.setWindowTitle("Portaria Digital")
         self.resize(820, 520)
+
+        self.visitantes = {}                    # cpf --> nome
+        self.visitas = []                       # lista de dicionarios
+        self.crachas_livres = list(CRACHAS)     # crachas na gaveta da recepção
+        self.proximo_id = 1
         
         # --- WIDGETS ---
         self.titulo = QLabel('Recepção - Registro de Visitantes')
@@ -57,11 +62,11 @@ class JanelaPrincipal(QWidget):
         self.campo_filtro = QLineEdit()
         self.campo_filtro.setPlaceholderText('Filtrar por nome ou setor')
         self.tabela = QTableWidget(0, len(COLUNAS))
-        self.tabela.setHorizontalHeaderLables(COLUNAS)
+        self.tabela.setHorizontalHeaderLabels(COLUNAS)
         self.tabela.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.tabela.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tabela.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.tabela.horizontalHeader().setSectionResizeMode(QHeaderView.Streatch)
+        self.tabela.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.tabela.verticalHeader().setVisible(False)
         self.botao_saida = QPushButton('Registrar saída da visita selecionada')
         self.contador = QLabel()
@@ -84,7 +89,7 @@ class JanelaPrincipal(QWidget):
         self.botao_saida.clicked.connect(self.registrar_saida)
         self.campo_filtro.textChanged.connect(self.atualizar_tabela)
 
-        self.atualizar_tabela()        
+        self.atualizar_tabela()  
 
     def buscar_visitante(self):
         cpf = somente_digitos(self.campo_cpf.text())
@@ -93,7 +98,7 @@ class JanelaPrincipal(QWidget):
             self.mensagem.setText('Visitante já cadastrado. Escolher o setor.')
 
     def registrar_entrada(self):
-        cpf = " ".join(c for c in self.campo_cpf.text() if c.isdigit())
+        cpf = somente_digitos(self.campo_cpf.text())
         nome = " ".join(self.campo_nome.text().split())
 
         if len(cpf) != 11:
@@ -106,6 +111,9 @@ class JanelaPrincipal(QWidget):
             return
         if self.campo_setor.currentIndex() == 0: 
             self.mensagem.setText('Selecone o setor de destino.')
+            return
+        if not self.crachas_livres:
+            self.mensagem.setText('Não há crachá disponivel. Aguarde uma devolução.')
             return 
         
         self.visitantes[cpf] = nome
@@ -152,8 +160,8 @@ class JanelaPrincipal(QWidget):
         self.tabela.setRowCount(len(linhas))
         for i, v in enumerate(linhas):
             valores = [v['id'], self.visitantes[v['cpf']], v['cpf'], v['setor'], v['cracha'], v['entrada']]
-        for j, valor in enumerate(valores):
-            self.tabela.setItem(i, j, QTableWidgetItem(str(valor)))
+            for j, valor in enumerate(valores):
+                self.tabela.setItem(i, j, QTableWidgetItem(str(valor)))
 
         self.contador.setText(
             f'No prédio: {len(self.presentes())} | Crachas livres: {len(self.crachas_livres)}'
