@@ -1,12 +1,16 @@
-import sys 
+import sys
+
 from PySide6.QtWidgets import QApplication
-from views.janela_principal import JanelaPrincipal
+
+from portaria.ui.janela_principal import JanelaPrincipal
+
 
 def main():
     app = QApplication(sys.argv)
-    window = JanelaPrincipal()
-    window.show()
+    janela = JanelaPrincipal()
+    janela.show()
     return app.exec()
+
 
 if __name__ == "__main__":
     sys.exit(main())
