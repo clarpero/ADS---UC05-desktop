@@ -1,9 +1,11 @@
 import logging
 import sqlite3
 
-from PySide6.QtCore import QDate
+from PySide6.QtCore import QDate, Qt
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QComboBox,
     QDateEdit,
     QDialog,
@@ -15,6 +17,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QStyle,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -26,6 +29,7 @@ from portaria import repositorio as repo
 from portaria import servicos
 from portaria.erros import RegraNegocioError
 from portaria.ui.dialogo_setor import DialogoSetor
+from portaria.ui.tema import gerar_folha, salvar_tema, tema_salvo
 from portaria.validacao import mascarar_documento, normalizar_documento
 
 log = logging.getLogger(__name__)
@@ -45,7 +49,18 @@ def nova_tabela(colunas):
     tabela.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
     tabela.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
     tabela.verticalHeader().setVisible(False)
+    tabela.setAlternatingRowColors(True)
     return tabela
+
+
+def estilizar_botao(botao, variante=None, icone=None):
+    """Cursor de mão, variante visual da folha de estilo e ícone opcional."""
+    botao.setCursor(Qt.CursorShape.PointingHandCursor)
+    if variante:
+        botao.setProperty("variante", variante)
+    if icone is not None:
+        botao.setIcon(botao.style().standardIcon(icone))
+    return botao
 
 
 def preencher_tabela(tabela, linhas):
@@ -69,8 +84,23 @@ class JanelaPrincipal(QMainWindow):
         abas.addTab(self.montar_aba_setores(), "Se&tores")
         abas.currentChanged.connect(self.atualizar_tudo)
         self.setCentralWidget(abas)
+        self.montar_menu()
 
         self.atualizar_tudo()
+
+    def montar_menu(self):
+        menu = self.menuBar().addMenu("&Exibir")
+        self.acao_tema_escuro = QAction("Tema &escuro", self)
+        self.acao_tema_escuro.setCheckable(True)
+        self.acao_tema_escuro.setShortcut("Ctrl+T")
+        self.acao_tema_escuro.setChecked(tema_salvo() == "escuro")
+        self.acao_tema_escuro.toggled.connect(self.trocar_tema)
+        menu.addAction(self.acao_tema_escuro)
+
+    def trocar_tema(self, escuro):
+        nome = "escuro" if escuro else "claro"
+        QApplication.instance().setStyleSheet(gerar_folha(nome))
+        salvar_tema(nome)
 
     def montar_aba_portaria(self):
         # ---------- formulário de entrada ----------
@@ -80,8 +110,12 @@ class JanelaPrincipal(QMainWindow):
         self.campo_nome = QLineEdit()
         self.combo_setor = QComboBox()
         self.botao_entrada = QPushButton("&Registrar entrada")  # Alt+R
+        estilizar_botao(self.botao_entrada, "primario",
+                        QStyle.StandardPixmap.SP_DialogApplyButton)
         self.botao_limpar = QPushButton("&Limpar campos")       # Alt+L
+        estilizar_botao(self.botao_limpar)
         self.mensagem = QLabel("Informe o CPF do visitante.")
+        self.mensagem.setObjectName("mensagem")
 
         formulario = QFormLayout()
         formulario.addRow("&CPF:", self.campo_cpf)      # Alt+C
@@ -97,6 +131,7 @@ class JanelaPrincipal(QMainWindow):
         self.campo_filtro.setPlaceholderText("Filtrar por nome ou setor")
         self.tabela = nova_tabela(COLUNAS)
         self.botao_saida = QPushButton("Registrar &saída da visita selecionada")  # Alt+S
+        estilizar_botao(self.botao_saida)
         self.contador = QLabel()
 
         layout = QVBoxLayout()
@@ -129,7 +164,7 @@ class JanelaPrincipal(QMainWindow):
             campo.setDisplayFormat("dd/MM/yyyy")
         self.campo_busca = QLineEdit()
         self.campo_busca.setPlaceholderText("Nome ou setor")
-        botao_filtrar = QPushButton("&Filtrar")
+        botao_filtrar = estilizar_botao(QPushButton("&Filtrar"))
         self.tabela_historico = nova_tabela(COLUNAS_HISTORICO)
         self.resumo = QLabel()
         self.resumo.setWordWrap(True)
@@ -156,9 +191,10 @@ class JanelaPrincipal(QMainWindow):
     def montar_aba_setores(self):
         self.tabela_setores = nova_tabela(COLUNAS_SETORES)
         self._setores = []
-        botao_novo = QPushButton("&Novo setor")
-        botao_editar = QPushButton("E&ditar selecionado")
-        botao_excluir = QPushButton("E&xcluir selecionado")
+        botao_novo = estilizar_botao(QPushButton("&Novo setor"), "primario")
+        botao_editar = estilizar_botao(QPushButton("E&ditar selecionado"))
+        botao_excluir = estilizar_botao(QPushButton("E&xcluir selecionado"), "perigo",
+                                        QStyle.StandardPixmap.SP_TrashIcon)
 
         botao_novo.clicked.connect(self.novo_setor)
         botao_editar.clicked.connect(self.editar_setor)
