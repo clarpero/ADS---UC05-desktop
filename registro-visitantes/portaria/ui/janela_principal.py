@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
     QDateEdit,
+    QDialog,
     QFormLayout,
     QHBoxLayout,
     QHeaderView,
@@ -24,6 +25,7 @@ from PySide6.QtWidgets import (
 from portaria import repositorio as repo
 from portaria import servicos
 from portaria.erros import RegraNegocioError
+from portaria.ui.dialogo_setor import DialogoSetor
 from portaria.validacao import mascarar_documento, normalizar_documento
 
 log = logging.getLogger(__name__)
@@ -31,6 +33,7 @@ FALHA = object()  # sinal de que a operação falhou e o usuário já foi avisad
 
 COLUNAS = ["Visita", "Nome", "CPF", "Setor", "Crachá", "Entrada"]
 COLUNAS_HISTORICO = ["Visita", "Nome", "CPF", "Setor", "Crachá", "Entrada", "Saída", "Min."]
+COLUNAS_SETORES = ["Código", "Setor", "Lotação", "Situação", "Visitas registradas"]
 
 
 def nova_tabela(colunas):
@@ -63,6 +66,7 @@ class JanelaPrincipal(QMainWindow):
         abas = QTabWidget()
         abas.addTab(self.montar_aba_portaria(), "&Portaria")
         abas.addTab(self.montar_aba_historico(), "&Histórico")
+        abas.addTab(self.montar_aba_setores(), "Se&tores")
         abas.currentChanged.connect(self.atualizar_tudo)
         self.setCentralWidget(abas)
 
@@ -149,6 +153,31 @@ class JanelaPrincipal(QMainWindow):
         aba.setLayout(layout)
         return aba
 
+    def montar_aba_setores(self):
+        self.tabela_setores = nova_tabela(COLUNAS_SETORES)
+        self._setores = []
+        botao_novo = QPushButton("&Novo setor")
+        botao_editar = QPushButton("E&ditar selecionado")
+        botao_excluir = QPushButton("E&xcluir selecionado")
+
+        botao_novo.clicked.connect(self.novo_setor)
+        botao_editar.clicked.connect(self.editar_setor)
+        botao_excluir.clicked.connect(self.excluir_setor)
+        self.tabela_setores.doubleClicked.connect(self.editar_setor)
+
+        botoes = QHBoxLayout()
+        botoes.addWidget(botao_novo)
+        botoes.addWidget(botao_editar)
+        botoes.addWidget(botao_excluir)
+        botoes.addStretch()
+
+        layout = QVBoxLayout()
+        layout.addLayout(botoes)
+        layout.addWidget(self.tabela_setores)
+        aba = QWidget()
+        aba.setLayout(layout)
+        return aba
+
     def carregar_setores(self):
         """Mostra a ocupação atual de cada setor."""
         setores = self._executar(repo.listar_setores_ativos, self.conn)
@@ -210,6 +239,7 @@ class JanelaPrincipal(QMainWindow):
         self.carregar_setores()
         self.atualizar_tabela()
         self.atualizar_historico()
+        self.atualizar_setores()
 
     def atualizar_tabela(self):
         # Presentes nunca passam do número de crachás: filtrar em memória é aceitável.
@@ -246,6 +276,57 @@ class JanelaPrincipal(QMainWindow):
                 texto += f", média de {r['media_minutos']} min"
             partes.append(texto)
         self.resumo.setText("Resumo do período. " + "; ".join(partes))
+
+    def atualizar_setores(self):
+        setores = self._executar(repo.listar_setores, self.conn)
+        if setores is FALHA:
+            return
+        self._setores = setores
+        preencher_tabela(self.tabela_setores, [
+            [s["id"], s["nome"], s["lotacao_maxima"],
+             "Ativo" if s["ativo"] else "Inativo", s["total_visitas"]]
+            for s in setores
+        ])
+
+    def setor_selecionado(self):
+        linha = self.tabela_setores.currentRow()
+        if linha < 0:
+            self._avisar("Selecione um setor na tabela.")
+            return None
+        setor_id = int(self.tabela_setores.item(linha, 0).text())
+        return next((s for s in self._setores if s["id"] == setor_id), None)
+
+    def novo_setor(self):
+        dialogo = DialogoSetor(self)
+        if dialogo.exec() == QDialog.DialogCode.Accepted:
+            dados = dialogo.dados()
+            if self._executar(servicos.salvar_setor, self.conn, dados["nome"],
+                              dados["lotacao_maxima"]) is not FALHA:
+                self.atualizar_tudo()
+
+    def editar_setor(self):
+        setor = self.setor_selecionado()
+        if setor is None:
+            return
+        dialogo = DialogoSetor(self, setor)
+        if dialogo.exec() == QDialog.DialogCode.Accepted:
+            dados = dialogo.dados()
+            if self._executar(servicos.salvar_setor, self.conn, dados["nome"],
+                              dados["lotacao_maxima"], dados["ativo"],
+                              setor["id"]) is not FALHA:
+                self.atualizar_tudo()
+
+    def excluir_setor(self):
+        setor = self.setor_selecionado()
+        if setor is None:
+            return
+        resposta = QMessageBox.question(
+            self, "Portaria Digital", f"Excluir o setor {setor['nome']}?"
+        )
+        if resposta != QMessageBox.StandardButton.Yes:
+            return
+        if self._executar(servicos.excluir_setor, self.conn, setor["id"]) is not FALHA:
+            self.atualizar_tudo()
 
     def limpar_campos(self):
         self.campo_cpf.clear()
