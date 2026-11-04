@@ -78,6 +78,20 @@ serem executados com `python nome.py` a partir da pasta do projeto, sem mudar o 
 de importação do pacote `portaria`, e não são usados pela aplicação.
 `integridade.py` e `estudo_sessao.py` alteram dados: rode-os num banco de teste.
 
+## Gerar o executável
+```bash
+python -m pip install pyinstaller
+pyinstaller --name PortariaDigital --windowed --add-data "portaria/schema.sql:portaria" --add-data "portaria/ui/estilo.qss:portaria/ui" --add-data "portaria/ui/icones:portaria/ui/icones" main.py
+```
+- `--windowed`: sem janela de terminal atrás da aplicação;
+- `--add-data A:B`: copia o arquivo A para a pasta B dentro do pacote. O `.sql`, o
+  `.qss` e os ícones não são código Python e o PyInstaller não os encontraria sozinho.
+
+O executável fica em `dist/PortariaDigital/` (as pastas `build/` e `dist/` e o arquivo
+`.spec` ficam fora do Git). Ele só roda no mesmo sistema operacional em que foi gerado:
+para Windows, gere no Windows. Para o uso no balcão, veja o
+[manual do operador](MANUAL.md).
+
 ## Limitações conhecidas
 - um computador por vez acessando o banco;
 - o banco é criado na pasta de onde o programa é aberto (um atalho com outra pasta de
