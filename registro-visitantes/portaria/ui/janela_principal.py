@@ -1,5 +1,4 @@
 import sqlite3
-from datetime import datetime
 
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -18,13 +17,11 @@ from PySide6.QtWidgets import (
 )
 
 from portaria import repositorio as repo
-from portaria.validacao import cpf_valido, mascarar_documento, normalizar_documento
+from portaria import servicos
+from portaria.erros import RegraNegocioError
+from portaria.validacao import mascarar_documento, normalizar_documento
 
 COLUNAS = ["Visita", "Nome", "CPF", "Setor", "Crachá", "Entrada"]
-
-
-def agora():
-    return datetime.now().isoformat(sep=" ", timespec="seconds")
 
 
 class JanelaPrincipal(QWidget):
@@ -84,14 +81,19 @@ class JanelaPrincipal(QWidget):
         self.botao_saida.clicked.connect(self.registrar_saida)
         self.campo_filtro.textChanged.connect(self.atualizar_tabela)
 
-        self.carregar_setores()
-        self.atualizar_tabela()
+        self.atualizar_tudo()
 
     def carregar_setores(self):
+        """Mostra a ocupação atual de cada setor."""
+        selecionado = self.combo_setor.currentData()
         self.combo_setor.clear()
         self.combo_setor.addItem("Selecione um setor", None)
-        for linha in repo.listar_setores_ativos(self.conn):
-            self.combo_setor.addItem(linha["nome"], linha["id"])
+        for s in repo.listar_setores_ativos(self.conn):
+            ocupacao = repo.contar_presentes_no_setor(self.conn, s["id"])
+            self.combo_setor.addItem(
+                f"{s['nome']} ({ocupacao}/{s['lotacao_maxima']})", s["id"]
+            )
+        self.combo_setor.setCurrentIndex(max(self.combo_setor.findData(selecionado), 0))
 
     def buscar_visitante(self):
         cpf = normalizar_documento(self.campo_cpf.text())
@@ -104,50 +106,27 @@ class JanelaPrincipal(QWidget):
             self.campo_nome.setReadOnly(False)
 
     def registrar_entrada(self):
-        cpf = normalizar_documento(self.campo_cpf.text())
-        nome = " ".join(self.campo_nome.text().split())
+        documento = self.campo_cpf.text()
         setor_id = self.combo_setor.currentData()
-
-        if not cpf_valido(cpf):
-            self.mensagem.setText("CPF inválido. Confira os 11 dígitos.")
-            self.campo_cpf.setFocus()
-            return
-        if not nome:
-            self.mensagem.setText("Informe o nome do visitante.")
-            self.campo_nome.setFocus()
-            return
         if setor_id is None:
             self.mensagem.setText("Selecione o setor de destino.")
             return
 
         try:
-            with self.conn:  # commit se tudo der certo, rollback se houver exceção
-                visitante = repo.buscar_visitante_por_documento(self.conn, cpf)
-                if visitante is None:
-                    visitante_id = repo.inserir_visitante(self.conn, nome, cpf)
-                else:
-                    visitante_id = visitante["id"]
-
-                if repo.visita_aberta_do_visitante(self.conn, visitante_id):
-                    self.mensagem.setText(f"{nome} já está no prédio. Registre a saída antes.")
-                    return
-
-                cracha = repo.buscar_cracha_disponivel(self.conn)
-                if cracha is None:
-                    self.mensagem.setText("Não há crachá disponível. Aguarde uma devolução.")
-                    return
-
-                repo.inserir_visita(
-                    self.conn, visitante_id, setor_id, cracha["id"], None, agora()
-                )
-                repo.atualizar_situacao_cracha(self.conn, cracha["id"], "em_uso")
+            cpf = normalizar_documento(documento)
+            if repo.buscar_visitante_por_documento(self.conn, cpf) is None:
+                servicos.cadastrar_visitante(self.conn, self.campo_nome.text(), documento)
+            servicos.registrar_entrada(self.conn, documento, setor_id)
+        except RegraNegocioError as erro:
+            self.mensagem.setText(str(erro))
+            return
         except sqlite3.Error as erro:
             QMessageBox.critical(self, "Portaria Digital", f"Erro no banco: {erro}")
             return
 
         self.limpar_campos()
-        self.mensagem.setText(f"Entrada registrada. Entregue o crachá {cracha['codigo']}.")
-        self.atualizar_tabela()
+        self.mensagem.setText("Entrada registrada. Entregue o crachá indicado na tabela.")
+        self.atualizar_tudo()
 
     def registrar_saida(self):
         linha = self.tabela.currentRow()
@@ -155,24 +134,23 @@ class JanelaPrincipal(QWidget):
             self.mensagem.setText("Selecione uma visita na tabela.")
             return
         visita_id = int(self.tabela.item(linha, 0).text())
-
         try:
-            with self.conn:
-                visita = repo.obter_visita(self.conn, visita_id)
-                if visita is None or visita["saida"] is not None:
-                    self.mensagem.setText("Esta visita já foi encerrada.")
-                    return
-                repo.encerrar_visita(self.conn, visita_id, agora())
-                repo.atualizar_situacao_cracha(self.conn, visita["cracha_id"], "disponivel")
+            servicos.registrar_saida(self.conn, visita_id)
+        except RegraNegocioError as erro:
+            self.mensagem.setText(str(erro))
+            return
         except sqlite3.Error as erro:
             QMessageBox.critical(self, "Portaria Digital", f"Erro no banco: {erro}")
             return
-
         self.mensagem.setText("Saída registrada. Crachá devolvido.")
+        self.atualizar_tudo()
+
+    def atualizar_tudo(self):
+        self.carregar_setores()
         self.atualizar_tabela()
 
     def atualizar_tabela(self):
-        # O SQL ficou no repositório; o filtro por nome ou setor é feito aqui.
+        # Presentes nunca passam do número de crachás: filtrar em memória é aceitável.
         presentes = repo.listar_presentes(self.conn)
         termo = self.campo_filtro.text().strip().lower()
         linhas = [l for l in presentes if termo in f"{l['nome']} {l['setor']}".lower()]
