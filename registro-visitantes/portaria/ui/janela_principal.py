@@ -1,3 +1,4 @@
+import logging
 import sqlite3
 
 from PySide6.QtCore import QDate
@@ -24,6 +25,9 @@ from portaria import repositorio as repo
 from portaria import servicos
 from portaria.erros import RegraNegocioError
 from portaria.validacao import mascarar_documento, normalizar_documento
+
+log = logging.getLogger(__name__)
+FALHA = object()  # sinal de que a operação falhou e o usuário já foi avisado
 
 COLUNAS = ["Visita", "Nome", "CPF", "Setor", "Crachá", "Entrada"]
 COLUNAS_HISTORICO = ["Visita", "Nome", "CPF", "Setor", "Crachá", "Entrada", "Saída", "Min."]
@@ -147,10 +151,13 @@ class JanelaPrincipal(QMainWindow):
 
     def carregar_setores(self):
         """Mostra a ocupação atual de cada setor."""
+        setores = self._executar(repo.listar_setores_ativos, self.conn)
+        if setores is FALHA:
+            return
         selecionado = self.combo_setor.currentData()
         self.combo_setor.clear()
         self.combo_setor.addItem("Selecione um setor", None)
-        for s in repo.listar_setores_ativos(self.conn):
+        for s in setores:
             ocupacao = repo.contar_presentes_no_setor(self.conn, s["id"])
             self.combo_setor.addItem(
                 f"{s['nome']} ({ocupacao}/{s['lotacao_maxima']})", s["id"]
@@ -159,7 +166,9 @@ class JanelaPrincipal(QMainWindow):
 
     def buscar_visitante(self):
         cpf = normalizar_documento(self.campo_cpf.text())
-        visitante = repo.buscar_visitante_por_documento(self.conn, cpf)
+        visitante = self._executar(repo.buscar_visitante_por_documento, self.conn, cpf)
+        if visitante is FALHA:
+            return
         if visitante:
             self.campo_nome.setText(visitante["nome"])
             self.campo_nome.setReadOnly(True)
@@ -171,21 +180,18 @@ class JanelaPrincipal(QMainWindow):
         documento = self.campo_cpf.text()
         setor_id = self.combo_setor.currentData()
         if setor_id is None:
-            self.mensagem.setText("Selecione o setor de destino.")
+            self._avisar("Selecione o setor de destino.")
             return
 
-        try:
+        def operacao():
             cpf = normalizar_documento(documento)
             if repo.buscar_visitante_por_documento(self.conn, cpf) is None:
                 servicos.cadastrar_visitante(self.conn, self.campo_nome.text(), documento)
-            servicos.registrar_entrada(self.conn, documento, setor_id)
-        except RegraNegocioError as erro:
-            self.mensagem.setText(str(erro))
-            return
-        except sqlite3.Error as erro:
-            QMessageBox.critical(self, "Portaria Digital", f"Erro no banco: {erro}")
-            return
+            return servicos.registrar_entrada(self.conn, documento, setor_id)
 
+        if self._executar(operacao) is FALHA:
+            self.mensagem.setText("Entrada não registrada. Corrija os dados e tente de novo.")
+            return
         self.limpar_campos()
         self.mensagem.setText("Entrada registrada. Entregue o crachá indicado na tabela.")
         self.atualizar_tudo()
@@ -193,19 +199,12 @@ class JanelaPrincipal(QMainWindow):
     def registrar_saida(self):
         linha = self.tabela.currentRow()
         if linha < 0:
-            self.mensagem.setText("Selecione uma visita na tabela.")
+            self._avisar("Selecione uma visita na tabela.")
             return
         visita_id = int(self.tabela.item(linha, 0).text())
-        try:
-            servicos.registrar_saida(self.conn, visita_id)
-        except RegraNegocioError as erro:
-            self.mensagem.setText(str(erro))
-            return
-        except sqlite3.Error as erro:
-            QMessageBox.critical(self, "Portaria Digital", f"Erro no banco: {erro}")
-            return
-        self.mensagem.setText("Saída registrada. Crachá devolvido.")
-        self.atualizar_tudo()
+        if self._executar(servicos.registrar_saida, self.conn, visita_id) is not FALHA:
+            self.mensagem.setText("Saída registrada. Crachá devolvido.")
+            self.atualizar_tudo()
 
     def atualizar_tudo(self):
         self.carregar_setores()
@@ -214,7 +213,9 @@ class JanelaPrincipal(QMainWindow):
 
     def atualizar_tabela(self):
         # Presentes nunca passam do número de crachás: filtrar em memória é aceitável.
-        presentes = repo.listar_presentes(self.conn)
+        presentes = self._executar(repo.listar_presentes, self.conn)
+        if presentes is FALHA:
+            return
         termo = self.campo_filtro.text().strip().lower()
         preencher_tabela(self.tabela, [
             [l["id"], l["nome"], mascarar_documento(l["documento"]),
@@ -229,7 +230,10 @@ class JanelaPrincipal(QMainWindow):
     def atualizar_historico(self):
         inicio = self.data_inicio.date().toString("yyyy-MM-dd")
         fim = self.data_fim.date().toString("yyyy-MM-dd")
-        linhas = repo.listar_historico(self.conn, inicio, fim, self.campo_busca.text())
+        linhas = self._executar(repo.listar_historico, self.conn, inicio, fim,
+                                self.campo_busca.text())
+        if linhas is FALHA:
+            return
         preencher_tabela(self.tabela_historico, [
             [l["id"], l["nome"], mascarar_documento(l["documento"]), l["setor"],
              l["cracha"], l["entrada"], l["saida"] or "no prédio", l["minutos"]]
@@ -249,3 +253,27 @@ class JanelaPrincipal(QMainWindow):
         self.campo_nome.setReadOnly(False)
         self.combo_setor.setCurrentIndex(0)
         self.campo_cpf.setFocus()
+
+    def _executar(self, funcao, *args):
+        """Ponto único de tratamento de exceções da interface.
+
+        Erro de regra: mensagem clara para o operador.
+        Erro de banco: registro técnico no log e aviso genérico, sem expor
+        detalhes internos nem dados pessoais.
+        """
+        try:
+            return funcao(*args)
+        except RegraNegocioError as erro:
+            self._avisar(str(erro))
+        except sqlite3.Error:
+            log.exception("Falha de banco em %s", getattr(funcao, "__name__", "operação"))
+            QMessageBox.critical(
+                self, "Portaria Digital",
+                "Não foi possível acessar o banco de dados. Nenhuma alteração "
+                "parcial foi gravada. Tente novamente ou avise o suporte.",
+            )
+        return FALHA
+
+    def _avisar(self, texto):
+        self.statusBar().showMessage(texto, 8000)  # some depois de 8 segundos
+        QMessageBox.warning(self, "Portaria Digital", texto)
