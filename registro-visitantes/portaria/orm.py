@@ -4,7 +4,14 @@ Não substitui repositorio.py: é um módulo isolado de estudo.
 """
 
 from sqlalchemy import ForeignKey, create_engine, select
-from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    Session,
+    mapped_column,
+    relationship,
+    selectinload,
+)
 
 
 class Base(DeclarativeBase):
@@ -58,6 +65,11 @@ def listar_presentes_orm(engine) -> list[tuple[int, str, str, str]]:
         consulta = (
             select(Visita)
             .where(Visita.saida.is_(None))
+            .options(
+                selectinload(Visita.visitante),
+                selectinload(Visita.setor),
+                selectinload(Visita.cracha),
+            )
             .order_by(Visita.entrada)
         )
         return [
