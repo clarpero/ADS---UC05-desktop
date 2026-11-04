@@ -24,6 +24,21 @@ def buscar_visitante_por_documento(conn, documento: str) -> Linha | None:
     ).fetchone()
 
 
+def historico_do_visitante(conn, documento: str, limite: int = 5) -> list[Linha]:
+    return conn.execute(
+        """
+        SELECT s.nome AS setor, v.entrada, v.saida
+          FROM visita v
+          JOIN visitante p ON p.id = v.visitante_id
+          JOIN setor s     ON s.id = v.setor_id
+         WHERE p.documento = ?
+         ORDER BY v.entrada DESC
+         LIMIT ?
+        """,
+        (documento, limite),
+    ).fetchall()
+
+
 # ---------- setor ----------
 
 def listar_setores_ativos(conn) -> list[Linha]:
